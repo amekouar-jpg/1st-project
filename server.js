@@ -340,6 +340,12 @@ app.get('/dashboard', (req, res) => {
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Start server
+// For local development
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+  });
+}
+
 // Export the Express app for serverless platforms (Vercel)
-// Note: do not call app.listen() here — Vercel will handle invocation.
 module.exports = app;
