@@ -27,23 +27,10 @@ class User {
     this.password = attrs.password;
     this.fullName = attrs.fullName || '';
     this.createdAt = new Date();
-    // Connection tracking
-    this.lastLogin = attrs.lastLogin || null; // Date
-    this.loginCount = attrs.loginCount || 0;
-    this.loginHistory = attrs.loginHistory || []; // { at: Date, ip: string }
   }
 
   async save() {
     users.push(this);
-    return this;
-  }
-
-  recordLogin(ip) {
-    const now = new Date();
-    this.lastLogin = now;
-    this.loginCount = (this.loginCount || 0) + 1;
-    this.loginHistory = this.loginHistory || [];
-    this.loginHistory.push({ at: now, ip: ip || null });
     return this;
   }
 
@@ -64,19 +51,6 @@ class User {
     if (query.username) return users.find(x => x.username === query.username) || null;
     if (query.email) return users.find(x => x.email === query.email) || null;
     return null;
-  }
-
-  static async findAll() {
-    // return all users sorted by lastLogin (most recent first)
-    return users.slice().sort((a,b)=>{
-      const ta = a.lastLogin ? new Date(a.lastLogin).getTime() : 0;
-      const tb = b.lastLogin ? new Date(b.lastLogin).getTime() : 0;
-      return tb - ta;
-    });
-  }
-
-  static async findConnected() {
-    return users.filter(u => u.lastLogin).slice().sort((a,b)=>new Date(b.lastLogin) - new Date(a.lastLogin));
   }
 }
 
