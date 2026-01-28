@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Student Management System</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-content">
+        <div class="header-flex">
+          <div>
+            <h1>📚 Student Management System</h1>
+            <p>Manage and track student information efficiently</p>
+          </div>
+          <div id="userDisplay" class="user-display"></div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="nav-tabs">
+      <button class="tab-button active" data-tab="dashboard">Dashboard</button>
+      <button class="tab-button" data-tab="add-student">Add Student</button>
+      <button class="tab-button" data-tab="students-list">View Students</button>
+    </nav>
+
+    <!-- Dashboard Tab -->
+    <section id="dashboard" class="tab-content active">
+      <div class="dashboard">
+        <h2>Dashboard</h2>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <h3>Total Students</h3>
+            <p class="stat-number" id="stat-total">0</p>
+          </div>
+          <div class="stat-card">
+            <h3>Active Students</h3>
+            <p class="stat-number" id="stat-active">0</p>
+          </div>
+          <div class="stat-card">
+            <h3>Inactive Students</h3>
+            <p class="stat-number" id="stat-inactive">0</p>
+          </div>
+          <div class="stat-card">
+            <h3>Average GPA</h3>
+            <p class="stat-number" id="stat-gpa">0.0</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Add/Edit Student Tab -->
+    <section id="add-student" class="tab-content">
+      <div class="form-container">
+        <h2 id="form-title">Add New Student</h2>
+        <form id="studentForm" class="student-form">
+          <input type="hidden" id="studentId">
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label for="firstName">First Name *</label>
+              <input type="text" id="firstName" name="firstName" required>
+            </div>
+            <div class="form-group">
+              <label for="lastName">Last Name *</label>
+              <input type="text" id="lastName" name="lastName" required>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="email">Email *</label>
+              <input type="email" id="email" name="email" required>
+            </div>
+            <div class="form-group">
+              <label for="phone">Phone</label>
+              <input type="tel" id="phone" name="phone">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="dateOfBirth">Date of Birth</label>
+              <input type="date" id="dateOfBirth" name="dateOfBirth">
+            </div>
+            <div class="form-group">
+              <label for="gpa">GPA</label>
+              <input type="number" id="gpa" name="gpa" min="0" max="4" step="0.1" value="0">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="status">Status</label>
+            <select id="status" name="status">
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive</option>
+              <option value="On Leave">On Leave</option>
+            </select>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Save Student</button>
+            <button type="reset" class="btn btn-secondary">Clear Form</button>
+            <button type="button" id="cancelEditBtn" class="btn btn-secondary" style="display:none;">Cancel Edit</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- Students List Tab -->
+    <section id="students-list" class="tab-content">
+      <div class="list-container">
+        <div class="list-header">
+          <h2>Students List</h2>
+          <div class="search-box">
+            <input 
+              type="text" 
+              id="searchInput" 
+              placeholder="Search by name or email..." 
+              class="search-input"
+            >
+            <button id="searchBtn" class="btn btn-primary">Search</button>
+            <button id="clearSearchBtn" class="btn btn-secondary">Clear</button>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table id="studentsTable" class="students-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>First Name</th>
+                <th>Last Name</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>GPA</th>
+                <th>Status</th>
+                <th>Enrollment Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="studentsTableBody">
+              <tr>
+                <td colspan="9" class="text-center">Loading students...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div id="emptyMessage" class="empty-message" style="display:none;">
+          <p>No students found. <a href="#" class="add-link">Add a new student</a></p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Modal for viewing student details -->
+  <div id="detailsModal" class="modal">
+    <div class="modal-content">
+      <span class="close">&times;</span>
+      <h2>Student Details</h2>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
