@@ -4,6 +4,17 @@ const cors = require('cors');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+// ============= QUICK ROUTES BEFORE DB LOADING =============
+
+app.get('/', (req, res) => res.send('Serveur OK'));
+app.get('/test', (req, res) => res.json({ test: 'working', vercel: !!process.env.VERCEL }));
+app.get('/api/users', (req, res) => res.json({ users: [], message: 'API working' }));
+app.get('/ping', (req, res) => res.json({ status: 'ok' }));
+
+// NOW load heavy modules
 // Conditional DB import - skip on Vercel to avoid timeout
 let db, authenticateToken, generateToken;
 
@@ -38,9 +49,6 @@ if (isVercel) {
   generateToken = auth.generateToken;
 }
 
-const app = express();
-const PORT = process.env.PORT || 5000;
-
 // Middleware - IMPORTANT: CORS and body parsing must come first
 app.use(cors({
   origin: '*',
@@ -54,32 +62,6 @@ app.options('*', cors());
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// ============= ROOT & API ROUTES (BEFORE everything) =============
-
-// Explicit root route
-app.get('/', (req, res) => {
-  res.send('Serveur OK');
-});
-
-// Test route
-app.get('/test', (req, res) => {
-  res.status(200).json({ test: 'working', env: process.env.NODE_ENV, vercel: !!process.env.VERCEL });
-});
-
-// Users API
-app.get('/api/users', (req, res) => {
-  return res.status(200).json({ 
-    users: [], 
-    message: 'API endpoint working',
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Ping
-app.get('/ping', (req, res) => {
-  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
-});
 
 // ============= AUTHENTICATION ROUTES (BEFORE static files) =============
 
