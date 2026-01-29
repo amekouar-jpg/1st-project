@@ -13,6 +13,11 @@ if (isVercel) {
   // In-memory database for Vercel
   db = {
     run: (query, params, callback) => {
+      if (typeof params === 'function') {
+        callback = params;
+        params = [];
+      }
+      params = params || [];
       setTimeout(() => {
         try {
           if (query.includes('INSERT INTO users')) {
@@ -70,6 +75,11 @@ if (isVercel) {
     },
     
     get: (query, params, callback) => {
+      if (typeof params === 'function') {
+        callback = params;
+        params = [];
+      }
+      params = params || [];
       setTimeout(() => {
         try {
           if (query.includes('FROM users WHERE username')) {
@@ -90,6 +100,11 @@ if (isVercel) {
     },
     
     all: (query, params, callback) => {
+      if (typeof params === 'function') {
+        callback = params;
+        params = [];
+      }
+      params = params || [];
       setTimeout(() => {
         try {
           if (query.includes('FROM users')) {
