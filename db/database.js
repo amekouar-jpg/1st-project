@@ -142,6 +142,11 @@ if (isServerless) {
       }, 0);
     }
   };
+
+  // Expose memory collections for server routes
+  db.__isMemory = true;
+  db.__memoryUsers = usersMemory;
+  db.__memoryStudents = studentsMemory;
   
   // Initialize tables immediately
   console.log('Users table initialized (in-memory)');
