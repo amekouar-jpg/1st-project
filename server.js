@@ -65,8 +65,6 @@ app.use(express.urlencoded({ extended: true }));
 
 // ============= AUTHENTICATION ROUTES (BEFORE static files) =============
 
-console.log('Registering authentication routes...');
-
 // Handle preflight requests
 app.options('/api/auth/register', cors());
 app.options('/api/auth/login', cors());
