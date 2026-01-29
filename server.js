@@ -13,9 +13,9 @@ if (isVercel) {
   console.log('Running on Vercel - using minimal mock DB');
   // Minimal mock DB to avoid SQLite loading
   db = {
-    run: (query, params, callback) => setTimeout(() => callback(null), 0),
-    get: (query, params, callback) => setTimeout(() => callback(null, null), 0),
-    all: (query, params, callback) => setTimeout(() => callback(null, []), 0),
+    run: (query, params, callback) => { if (callback) callback(null); },
+    get: (query, params, callback) => { if (callback) callback(null, null); },
+    all: (query, params, callback) => { if (callback) callback(null, []); },
     __isMemory: true,
     __memoryUsers: [],
     __memoryStudents: []
@@ -26,6 +26,7 @@ if (isVercel) {
   generateToken = (user) => jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '24h' });
   authenticateToken = (req, res, next) => next();
 } else {
+  console.log('Running locally - using SQLite database');
   db = require('./db/database');
   const auth = require('./db/auth');
   authenticateToken = auth.authenticateToken;
