@@ -361,6 +361,11 @@ app.get('/api/statistics', authenticateToken, (req, res) => {
 
 // ============= USERS ENDPOINT =============
 
+// Test endpoint
+app.get('/test', (req, res) => {
+  res.status(200).json({ test: 'working', env: process.env.NODE_ENV, vercel: !!process.env.VERCEL });
+});
+
 // Get all connected users (users who have logged in)
 app.get('/api/users', (req, res) => {
   // Immediate response - no DB calls
