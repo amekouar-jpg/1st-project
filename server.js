@@ -12,6 +12,7 @@ const PORT = process.env.PORT || 5000;
 app.get('/', (req, res) => res.send('Serveur OK'));
 app.get('/test', (req, res) => res.json({ test: 'working', vercel: !!process.env.VERCEL }));
 app.get('/api/users', (req, res) => res.json({ users: [], message: 'API working' }));
+app.get('/users', (req, res) => res.json({ users: [], message: 'non-api route working' }));
 app.get('/ping', (req, res) => res.json({ status: 'ok' }));
 
 // NOW load heavy modules
