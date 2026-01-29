@@ -339,7 +339,14 @@ app.get('/api/statistics', authenticateToken, (req, res) => {
 app.get('/api/users', (req, res) => {
   console.log('GET /api/users');
   
-  // Use in-memory users directly when running on Vercel
+  // Force immediate response on Vercel to avoid timeout
+  const isVercel = process.env.VERCEL || process.env.VERCEL_ENV;
+  if (isVercel) {
+    console.log('Vercel detected - returning empty users list');
+    return res.json({ users: [], environment: 'vercel', note: 'In-memory DB resets on each request' });
+  }
+  
+  // Use in-memory users directly when running with mock DB
   if (db.__isMemory && Array.isArray(db.__memoryUsers)) {
     const users = db.__memoryUsers
       .filter(u => u.lastLogin)
