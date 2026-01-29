@@ -9,6 +9,10 @@ let db, authenticateToken, generateToken;
 
 const isVercel = process.env.VERCEL || process.env.VERCEL_ENV;
 
+console.log('=== SERVER STARTUP ===');
+console.log('isVercel:', isVercel);
+console.log('VERCEL env var:', process.env.VERCEL);
+
 if (isVercel) {
   console.log('Running on Vercel - using minimal mock DB');
   // Minimal mock DB to avoid SQLite loading
@@ -25,6 +29,7 @@ if (isVercel) {
   const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-here-change-in-production';
   generateToken = (user) => jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '24h' });
   authenticateToken = (req, res, next) => next();
+  console.log('Mock DB initialized');
 } else {
   console.log('Running locally - using SQLite database');
   db = require('./db/database');
