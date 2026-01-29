@@ -398,12 +398,20 @@ app.get('/dashboard', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// ============= PING FOR DIAGNOSTICS =============
+
+app.get('/ping', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // Serve static files (CSS, JS, images, etc.) - AFTER routes
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Start server
-// For local development
-if (require.main === module) {
+// Start server - ALWAYS export, listen locally if not Vercel
+const isProduction = process.env.VERCEL || process.env.NODE_ENV === 'production';
+
+if (!isProduction) {
+  // Local development
   app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
   });
