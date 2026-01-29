@@ -63,8 +63,8 @@ app.options('*', cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ============= AUTHENTICATION ROUTES (BEFORE static files) =============
-
+// ============= AUTHENTICATION ROUTES (DISABLED FOR TESTING) =============
+/*
 // Handle preflight requests
 app.options('/api/auth/register', cors());
 app.options('/api/auth/login', cors());
@@ -344,6 +344,7 @@ app.get('/api/students/search/:query', authenticateToken, (req, res) => {
   });
 });
 
+
 // GET statistics
 app.get('/api/statistics', authenticateToken, (req, res) => {
   db.serialize(() => {
@@ -370,6 +371,7 @@ app.get('/api/statistics', authenticateToken, (req, res) => {
     });
   });
 });
+*/
 
 // ============= STATIC FILES & HTML ROUTES =============
 
