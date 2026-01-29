@@ -21,7 +21,10 @@ function initializeDatabase() {
         email TEXT NOT NULL UNIQUE,
         password TEXT NOT NULL,
         fullName TEXT,
-        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        lastLogin DATETIME,
+        loginCount INTEGER DEFAULT 0,
+        loginHistory TEXT DEFAULT '[]'
       )
     `, (err) => {
       if (err) {

@@ -137,6 +137,17 @@ app.post('/api/auth/login', (req, res) => {
       }
 
       console.log('Password matches, generating token for user:', username);
+      
+      // Record login timestamp
+      const loginQuery = `UPDATE users SET lastLogin = CURRENT_TIMESTAMP, loginCount = loginCount + 1 WHERE id = ?`;
+      db.run(loginQuery, [user.id], (err) => {
+        if (err) {
+          console.error('Error recording login:', err);
+        } else {
+          console.log('Login recorded for user:', username);
+        }
+      });
+
       const userData = { id: user.id, username: user.username, email: user.email, fullName: user.fullName };
       const token = generateToken(userData);
       console.log('Login successful, sending response');
@@ -319,6 +330,29 @@ app.get('/api/statistics', authenticateToken, (req, res) => {
         }
       });
     });
+  });
+});
+
+// ============= USERS ENDPOINT =============
+
+// Get all connected users (users who have logged in)
+app.get('/api/users', (req, res) => {
+  console.log('GET /api/users');
+  
+  const query = `
+    SELECT id, username, email, fullName, createdAt, lastLogin, loginCount
+    FROM users
+    WHERE lastLogin IS NOT NULL
+    ORDER BY lastLogin DESC
+  `;
+
+  db.all(query, (err, rows) => {
+    if (err) {
+      console.error('Database error:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+
+    res.json({ users: rows || [] });
   });
 });
 
