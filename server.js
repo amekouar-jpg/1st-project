@@ -49,6 +49,32 @@ app.options('*', cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// ============= ROOT & API ROUTES (BEFORE everything) =============
+
+// Explicit root route
+app.get('/', (req, res) => {
+  res.send('Serveur OK');
+});
+
+// Test route
+app.get('/test', (req, res) => {
+  res.status(200).json({ test: 'working', env: process.env.NODE_ENV, vercel: !!process.env.VERCEL });
+});
+
+// Users API
+app.get('/api/users', (req, res) => {
+  return res.status(200).json({ 
+    users: [], 
+    message: 'API endpoint working',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Ping
+app.get('/ping', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // ============= AUTHENTICATION ROUTES (BEFORE static files) =============
 
 console.log('Registering authentication routes...');
@@ -359,41 +385,12 @@ app.get('/api/statistics', authenticateToken, (req, res) => {
   });
 });
 
-// ============= USERS ENDPOINT =============
-
-// Test endpoint
-app.get('/test', (req, res) => {
-  res.status(200).json({ test: 'working', env: process.env.NODE_ENV, vercel: !!process.env.VERCEL });
-});
-
-// Get all connected users (users who have logged in)
-app.get('/api/users', (req, res) => {
-  // Immediate response - no DB calls
-  return res.status(200).json({ 
-    users: [], 
-    message: 'API endpoint working',
-    timestamp: new Date().toISOString()
-  });
-});
-
 // ============= STATIC FILES & HTML ROUTES =============
-
-// HTML routes MUST come BEFORE static files
-// Test route for serverless verification
-app.get('/', (req, res) => {
-  res.send('Serveur OK');
-});
 
 // Serve dashboard for /dashboard
 app.get('/dashboard', (req, res) => {
   console.log('GET /dashboard - serving index.html');
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// ============= PING FOR DIAGNOSTICS =============
-
-app.get('/ping', (req, res) => {
-  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // Serve static files (CSS, JS, images, etc.) - AFTER routes
