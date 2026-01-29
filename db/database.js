@@ -1,5 +1,5 @@
 // Database adapter - uses SQLite locally, in-memory on Vercel
-const isVercel = process.env.VERCEL || process.env.NOW_REGION;
+const isServerless = process.env.VERCEL || process.env.NOW_REGION || process.env.VERCEL_ENV || process.env.NODE_ENV === 'production';
 
 let db;
 let usersMemory = [];
@@ -7,7 +7,7 @@ let studentsMemory = [];
 let userIdCounter = 1;
 let studentIdCounter = 1;
 
-if (isVercel) {
+if (isServerless) {
   console.log('Running on Vercel - using in-memory database');
   
   // In-memory database for Vercel
