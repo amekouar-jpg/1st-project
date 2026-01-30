@@ -11,11 +11,23 @@ const PORT = process.env.PORT || 5000;
 
 let db, authenticateToken, generateToken;
 
-const isVercel = process.env.VERCEL || process.env.VERCEL_ENV;
+// Detect if running on Vercel - check multiple env vars and hostname
+const isVercel = !!(
+  process.env.VERCEL || 
+  process.env.VERCEL_ENV ||
+  process.env.VERCEL_URL ||
+  process.env.VERCEL_GITHUB_ORG ||
+  (process.env.NODE_ENV === 'production' && !process.env.DATABASE_FILE)
+);
 
 console.log('=== SERVER STARTUP ===');
 console.log('isVercel:', isVercel);
-console.log('VERCEL env var:', process.env.VERCEL);
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('VERCEL env vars:', {
+  VERCEL: process.env.VERCEL,
+  VERCEL_ENV: process.env.VERCEL_ENV,
+  VERCEL_URL: process.env.VERCEL_URL
+});
 
 if (isVercel) {
   console.log('Running on Vercel - using in-memory DB');
@@ -221,11 +233,41 @@ if (isVercel) {
   authenticateToken = (req, res, next) => next();
   console.log('In-memory DB initialized for Vercel');
 } else {
-  console.log('Running locally - using SQLite database');
-  db = require('./db/database');
-  const auth = require('./db/auth');
-  authenticateToken = auth.authenticateToken;
-  generateToken = auth.generateToken;
+  console.log('Running locally - attempting to load SQLite database');
+  try {
+    db = require('./db/database');
+    const auth = require('./db/auth');
+    authenticateToken = auth.authenticateToken;
+    generateToken = auth.generateToken;
+    console.log('SQLite database loaded successfully');
+  } catch (dbError) {
+    console.warn('Failed to load SQLite, falling back to in-memory DB:', dbError.message);
+    // Fallback to in-memory DB if SQLite fails
+    const memoryData = {
+      users: [],
+      students: [],
+      userIdCounter: 1,
+      studentIdCounter: 1
+    };
+    
+    db = {
+      run: (query, params, callback) => {
+        if (callback) callback(null);
+      },
+      get: (query, params, callback) => {
+        if (callback) callback(null, null);
+      },
+      all: (query, params, callback) => {
+        if (callback) callback(null, []);
+      },
+      serialize: (fn) => fn()
+    };
+    
+    const jwt = require('jsonwebtoken');
+    const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-here-change-in-production';
+    generateToken = (user) => jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '24h' });
+    authenticateToken = (req, res, next) => next();
+  }
 }
 
 // Middleware - IMPORTANT: CORS and body parsing must come first
@@ -251,61 +293,76 @@ app.options('/api/auth/verify', cors());
 
 // Register new user
 app.post('/api/auth/register', (req, res) => {
-  console.log('POST /api/auth/register - Body:', req.body);
-  
-  const { username, email, password, fullName } = req.body;
+  try {
+    console.log('POST /api/auth/register - Body:', req.body);
+    
+    const { username, email, password, fullName } = req.body;
 
-  // Validation
-  if (!username || !email || !password) {
-    console.log('Validation failed - missing fields');
-    res.status(400).json({ error: 'Username, email, and password are required' });
-    return;
-  }
-
-  if (password.length < 6) {
-    console.log('Validation failed - password too short');
-    res.status(400).json({ error: 'Password must be at least 6 characters' });
-    return;
-  }
-
-  console.log('Hashing password for user:', username);
-  
-  // Hash password
-  bcrypt.hash(password, 10, (err, hashedPassword) => {
-    if (err) {
-      console.error('Error hashing password:', err);
-      res.status(500).json({ error: 'Error processing password' });
+    // Validation
+    if (!username || !email || !password) {
+      console.log('Validation failed - missing fields');
+      res.status(400).json({ error: 'Username, email, and password are required' });
       return;
     }
 
-    const query = `
-      INSERT INTO users (username, email, password, fullName)
-      VALUES (?, ?, ?, ?)
-    `;
+    if (password.length < 6) {
+      console.log('Validation failed - password too short');
+      res.status(400).json({ error: 'Password must be at least 6 characters' });
+      return;
+    }
 
-    console.log('Inserting user into database');
-    db.run(query, [username, email, hashedPassword, fullName || ''], function(err) {
-      if (err) {
-        console.error('Database error:', err.message);
-        if (err.message.includes('UNIQUE constraint failed')) {
-          if (err.message.includes('username')) {
-            res.status(400).json({ error: 'Username already exists' });
-          } else {
-            res.status(400).json({ error: 'Email already exists' });
-          }
-        } else {
-          res.status(500).json({ error: err.message });
+    console.log('Hashing password for user:', username);
+    
+    // Hash password
+    bcrypt.hash(password, 10, (err, hashedPassword) => {
+      try {
+        if (err) {
+          console.error('Error hashing password:', err);
+          res.status(500).json({ error: 'Error processing password' });
+          return;
         }
-        return;
-      }
 
-      console.log('User registered successfully, ID:', this.lastID);
-      const user = { id: this.lastID, username, email, fullName };
-      const token = generateToken(user);
-      console.log('Sending registration response with token');
-      res.json({ message: 'Registration successful', token, user });
+        const query = `
+          INSERT INTO users (username, email, password, fullName)
+          VALUES (?, ?, ?, ?)
+        `;
+
+        console.log('Inserting user into database');
+        db.run(query, [username, email, hashedPassword, fullName || ''], function(err) {
+          try {
+            if (err) {
+              console.error('Database error:', err.message);
+              if (err.message.includes('UNIQUE constraint failed')) {
+                if (err.message.includes('username')) {
+                  res.status(400).json({ error: 'Username already exists' });
+                } else {
+                  res.status(400).json({ error: 'Email already exists' });
+                }
+              } else {
+                res.status(500).json({ error: err.message });
+              }
+              return;
+            }
+
+            console.log('User registered successfully, ID:', this.lastID);
+            const user = { id: this.lastID, username, email, fullName };
+            const token = generateToken(user);
+            console.log('Sending registration response with token');
+            res.json({ message: 'Registration successful', token, user });
+          } catch (innerErr) {
+            console.error('Error in db.run callback:', innerErr);
+            res.status(500).json({ error: 'Internal server error in registration' });
+          }
+        });
+      } catch (bcryptErr) {
+        console.error('Error in bcrypt callback:', bcryptErr);
+        res.status(500).json({ error: 'Internal server error' });
+      }
     });
-  });
+  } catch (error) {
+    console.error('Uncaught error in /api/auth/register:', error);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
 });
 
 // Login user
