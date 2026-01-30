@@ -236,26 +236,26 @@ if (isVercel) {
   const jwt = require('jsonwebtoken');
   const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-here-change-in-production';
   generateToken = (user) => jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '24h' });
+  
+  // Proper token authentication for Vercel
+  authenticateToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
     
-    // Proper token authentication for Vercel
-    authenticateToken = (req, res, next) => {
-      const authHeader = req.headers['authorization'];
-      const token = authHeader && authHeader.split(' ')[1];
-      
-      if (!token) {
-        console.warn('No token provided in request');
-        return res.status(401).json({ error: 'No token provided' });
+    if (!token) {
+      console.warn('No token provided in request');
+      return res.status(401).json({ error: 'No token provided' });
+    }
+    
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+      if (err) {
+        console.error('Token verification failed:', err.message);
+        return res.status(401).json({ error: 'Invalid token' });
       }
-      
-      jwt.verify(token, JWT_SECRET, (err, user) => {
-        if (err) {
-          console.error('Token verification failed:', err.message);
-          return res.status(401).json({ error: 'Invalid token' });
-        }
-        req.user = user;
-        next();
-      });
-    };
+      req.user = user;
+      next();
+    });
+  };
   console.log('In-memory DB initialized for Vercel');
 } else {
   console.log('Running locally - attempting to load SQLite database');
