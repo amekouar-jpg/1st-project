@@ -9,10 +9,20 @@ const PORT = process.env.PORT || 5000;
 
 // ============= DATABASE & AUTH SETUP =============
 
-// Global in-memory storage (persists across requests in same instance)
-// NOTE: On Vercel, data persists only while the instance is "warm" (~5-15 min)
-// For real persistence, use Upstash Redis, MongoDB, or Vercel Postgres
-// See VERCEL_PERSISTENCE.md for details
+// Check if Vercel KV is available
+const hasKV = !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
+let kvStorage = null;
+
+if (hasKV) {
+  console.log('✅ Vercel KV detected - will use persistent storage');
+  try {
+    kvStorage = require('./db/kv-storage');
+  } catch (error) {
+    console.error('❌ Failed to load KV storage:', error);
+  }
+}
+
+// Global in-memory storage (fallback if KV not available)
 const globalMemoryData = {
   users: [],
   students: [],
@@ -35,15 +45,25 @@ const isVercel = !!(
 
 console.log('=== SERVER STARTUP ===');
 console.log('isVercel:', isVercel);
+console.log('hasKV:', hasKV);
 console.log('NODE_ENV:', process.env.NODE_ENV);
-console.log('VERCEL env vars:', {
-  VERCEL: process.env.VERCEL,
-  VERCEL_ENV: process.env.VERCEL_ENV,
-  VERCEL_URL: process.env.VERCEL_URL
-});
+
+// Initialize KV if available
+if (hasKV && kvStorage) {
+  kvStorage.init().then(success => {
+    if (success) {
+      console.log('🎉 Using Vercel KV for persistent storage');
+    } else {
+      console.log('⚠️  KV init failed, falling back to memory');
+    }
+  }).catch(err => {
+    console.error('KV init error:', err);
+  });
+}
 
 if (isVercel) {
-  console.log('Running on Vercel - using in-memory DB');
+  console.log('Running on Vercel');
+  console.log('Storage type:', hasKV ? 'Vercel KV (persistent)' : 'In-memory (temporary)');
   console.log('=== MEMORY STATE ON STARTUP ===');
   console.log('Users:', globalMemoryData.users.length);
   console.log('Students:', globalMemoryData.students.length);
@@ -337,29 +357,41 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ============= DEBUG ENDPOINT =============
-app.get('/api/debug/memory', (req, res) => {
+app.get('/api/debug/memory', async (req, res) => {
   const uptime = globalMemoryData.lastAccess ? (Date.now() - globalMemoryData.lastAccess) / 1000 : 0;
+  
+  let kvData = null;
+  if (hasKV && kvStorage) {
+    try {
+      const students = await kvStorage.getStudents();
+      const users = await kvStorage.getUsers();
+      kvData = {
+        users: users.length,
+        students: students.length,
+        studentsList: students.map(s => ({
+          id: s.id,
+          name: `${s.firstName} ${s.lastName}`,
+          email: s.email
+        }))
+      };
+    } catch (err) {
+      kvData = { error: err.message };
+    }
+  }
+  
   const memInfo = {
     isVercel: isVercel,
+    hasKV: hasKV,
+    storageType: hasKV ? 'Vercel KV (Redis) - PERSISTENT' : 'In-memory - TEMPORARY',
     timestamp: new Date().toISOString(),
     instanceUptime: `${uptime.toFixed(2)} seconds`,
-    warning: 'Data persists only while instance is warm (~5-15 min). See VERCEL_PERSISTENCE.md for real persistence.',
-    memoryState: {
+    kvData: kvData,
+    memoryFallback: {
       users: globalMemoryData.users.length,
       students: globalMemoryData.students.length,
-      studentsList: globalMemoryData.students.map(s => ({
-        id: s.id,
-        name: `${s.firstName} ${s.lastName}`,
-        email: s.email
-      })),
-      userIdCounter: globalMemoryData.userIdCounter,
-      studentIdCounter: globalMemoryData.studentIdCounter,
       initialized: globalMemoryData.initialized
     },
-    solutions: {
-      recommended: 'Upstash Redis via Vercel Marketplace (free)',
-      alternatives: ['MongoDB Atlas', 'Vercel Postgres', 'VPS hosting with SQLite']
-    }
+    status: hasKV ? '✅ Persistent storage active' : '⚠️ Temporary storage - data will be lost'
   };
   console.log('📊 Memory debug requested:', memInfo);
   res.json(memInfo);
@@ -373,7 +405,7 @@ app.options('/api/auth/login', cors());
 app.options('/api/auth/verify', cors());
 
 // Register new user
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   try {
     console.log('POST /api/auth/register - Body:', req.body);
     
@@ -395,49 +427,62 @@ app.post('/api/auth/register', (req, res) => {
     console.log('Hashing password for user:', username);
     
     // Hash password
-    bcrypt.hash(password, 10, (err, hashedPassword) => {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    // Use KV if available, otherwise use in-memory DB
+    if (hasKV && kvStorage) {
+      // Check if user exists
+      const existingUser = await kvStorage.findUserByUsername(username);
+      if (existingUser) {
+        return res.status(400).json({ error: 'Username already exists' });
+      }
+      
+      // Add user to KV
+      const user = await kvStorage.addUser({
+        username,
+        email,
+        password: hashedPassword,
+        fullName: fullName || '',
+        lastLogin: new Date().toISOString(),
+        loginCount: 0
+      });
+      
+      console.log('User registered in KV, ID:', user.id);
+      const token = generateToken(user);
+      return res.json({ message: 'Registration successful', token, user: { id: user.id, username, email, fullName } });
+    }
+    
+    // Fallback to in-memory DB (original code)
+    const query = `
+      INSERT INTO users (username, email, password, fullName)
+      VALUES (?, ?, ?, ?)
+    `;
+
+    console.log('Inserting user into database');
+    db.run(query, [username, email, hashedPassword, fullName || ''], function(err) {
       try {
         if (err) {
-          console.error('Error hashing password:', err);
-          res.status(500).json({ error: 'Error processing password' });
+          console.error('Database error:', err.message);
+          if (err.message.includes('UNIQUE constraint failed')) {
+            if (err.message.includes('username')) {
+              res.status(400).json({ error: 'Username already exists' });
+            } else {
+              res.status(400).json({ error: 'Email already exists' });
+            }
+          } else {
+            res.status(500).json({ error: err.message });
+          }
           return;
         }
 
-        const query = `
-          INSERT INTO users (username, email, password, fullName)
-          VALUES (?, ?, ?, ?)
-        `;
-
-        console.log('Inserting user into database');
-        db.run(query, [username, email, hashedPassword, fullName || ''], function(err) {
-          try {
-            if (err) {
-              console.error('Database error:', err.message);
-              if (err.message.includes('UNIQUE constraint failed')) {
-                if (err.message.includes('username')) {
-                  res.status(400).json({ error: 'Username already exists' });
-                } else {
-                  res.status(400).json({ error: 'Email already exists' });
-                }
-              } else {
-                res.status(500).json({ error: err.message });
-              }
-              return;
-            }
-
-            console.log('User registered successfully, ID:', this.lastID);
-            const user = { id: this.lastID, username, email, fullName };
-            const token = generateToken(user);
-            console.log('Sending registration response with token');
-            res.json({ message: 'Registration successful', token, user });
-          } catch (innerErr) {
-            console.error('Error in db.run callback:', innerErr);
-            res.status(500).json({ error: 'Internal server error in registration' });
-          }
-        });
-      } catch (bcryptErr) {
-        console.error('Error in bcrypt callback:', bcryptErr);
-        res.status(500).json({ error: 'Internal server error' });
+        console.log('User registered successfully, ID:', this.lastID);
+        const user = { id: this.lastID, username, email, fullName };
+        const token = generateToken(user);
+        console.log('Sending registration response with token');
+        res.json({ message: 'Registration successful', token, user });
+      } catch (innerErr) {
+        console.error('Error in db.run callback:', innerErr);
+        res.status(500).json({ error: 'Internal server error in registration' });
       }
     });
   } catch (error) {
@@ -447,68 +492,100 @@ app.post('/api/auth/register', (req, res) => {
 });
 
 // Login user
-app.post('/api/auth/login', (req, res) => {
-  console.log('POST /api/auth/login - Username:', req.body.username);
-  
-  const { username, password } = req.body;
-
-  // Validation
-  if (!username || !password) {
-    console.log('Login validation failed - missing fields');
-    res.status(400).json({ error: 'Username and password are required' });
-    return;
-  }
-
-  const query = `SELECT id, username, email, password, fullName FROM users WHERE username = ?`;
-
-  console.log('Querying database for user:', username);
-  db.get(query, [username], (err, user) => {
-    if (err) {
-      console.error('Database error:', err);
-      res.status(500).json({ error: err.message });
-      return;
-    }
-
-    if (!user) {
-      console.log('User not found:', username);
-      res.status(401).json({ error: 'Invalid username or password' });
-      return;
-    }
-
-    console.log('User found, comparing passwords');
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    console.log('POST /api/auth/login - Username:', req.body.username);
     
-    // Compare passwords
-    bcrypt.compare(password, user.password, (err, isMatch) => {
-      if (err) {
-        console.error('Password comparison error:', err);
-        res.status(500).json({ error: 'Error verifying password' });
-        return;
+    const { username, password } = req.body;
+
+    // Validation
+    if (!username || !password) {
+      console.log('Login validation failed - missing fields');
+      return res.status(400).json({ error: 'Username and password are required' });
+    }
+
+    // Use KV if available
+    if (hasKV && kvStorage) {
+      const user = await kvStorage.findUserByUsername(username);
+      
+      if (!user) {
+        console.log('User not found in KV:', username);
+        return res.status(401).json({ error: 'Invalid username or password' });
       }
 
+      console.log('User found in KV, comparing passwords');
+      const isMatch = await bcrypt.compare(password, user.password);
+      
       if (!isMatch) {
         console.log('Password does not match for user:', username);
-        res.status(401).json({ error: 'Invalid username or password' });
-        return;
+        return res.status(401).json({ error: 'Invalid username or password' });
       }
 
       console.log('Password matches, generating token for user:', username);
       
-      // Record login timestamp
-      const loginQuery = `UPDATE users SET lastLogin = CURRENT_TIMESTAMP, loginCount = loginCount + 1 WHERE id = ?`;
-      db.run(loginQuery, [user.id], (err) => {
-        if (err) {
-          console.error('Error recording login:', err);
-        } else {
-          console.log('Login recorded for user:', username);
-        }
+      // Update login info
+      await kvStorage.updateUser(user.id, {
+        lastLogin: new Date().toISOString(),
+        loginCount: (user.loginCount || 0) + 1
       });
 
       const userData = { id: user.id, username: user.username, email: user.email, fullName: user.fullName };
       const token = generateToken(userData);
-      console.log('Login successful, sending response');
-      res.json({ message: 'Login successful', token, user: userData });
+      console.log('Login successful from KV, sending response');
+      return res.json({ message: 'Login successful', token, user: userData });
+    }
+
+    // Fallback to in-memory/SQLite DB
+    const query = `SELECT id, username, email, password, fullName FROM users WHERE username = ?`;
+
+    console.log('Querying database for user:', username);
+    db.get(query, [username], (err, user) => {
+      if (err) {
+        console.error('Database error:', err);
+        return res.status(500).json({ error: err.message });
+      }
+
+      if (!user) {
+        console.log('User not found:', username);
+        return res.status(401).json({ error: 'Invalid username or password' });
+      }
+
+      console.log('User found, comparing passwords');
+      
+      // Compare passwords
+      bcrypt.compare(password, user.password, (err, isMatch) => {
+        if (err) {
+          console.error('Password comparison error:', err);
+          return res.status(500).json({ error: 'Error verifying password' });
+        }
+
+        if (!isMatch) {
+          console.log('Password does not match for user:', username);
+          return res.status(401).json({ error: 'Invalid username or password' });
+        }
+
+        console.log('Password matches, generating token for user:', username);
+        
+        // Record login timestamp
+        const loginQuery = `UPDATE users SET lastLogin = CURRENT_TIMESTAMP, loginCount = loginCount + 1 WHERE id = ?`;
+        db.run(loginQuery, [user.id], (err) => {
+          if (err) {
+            console.error('Error recording login:', err);
+          } else {
+            console.log('Login recorded for user:', username);
+          }
+        });
+
+        const userData = { id: user.id, username: user.username, email: user.email, fullName: user.fullName };
+        const token = generateToken(userData);
+        console.log('Login successful, sending response');
+        res.json({ message: 'Login successful', token, user: userData });
+      });
     });
-  });
+  } catch (error) {
+    console.error('Error in login:', error);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
 });
 
 // Verify token
@@ -519,9 +596,18 @@ app.get('/api/auth/verify', authenticateToken, (req, res) => {
 // ============= STUDENT API ROUTES (Protected) =============
 
 // GET all students
-app.get('/api/students', authenticateToken, (req, res) => {
+app.get('/api/students', authenticateToken, async (req, res) => {
   try {
     console.log('GET /api/students - User:', req.user);
+    
+    // Use KV if available
+    if (hasKV && kvStorage) {
+      const students = await kvStorage.getStudents();
+      console.log('Returning', students.length, 'students from KV');
+      return res.json(students);
+    }
+    
+    // Fallback to in-memory/SQLite
     const query = `
       SELECT id, firstName, lastName, email, phone, dateOfBirth, 
              enrollmentDate, gpa, status 
@@ -533,8 +619,7 @@ app.get('/api/students', authenticateToken, (req, res) => {
       try {
         if (err) {
           console.error('Database error:', err);
-          res.status(500).json({ error: err.message });
-          return;
+          return res.status(500).json({ error: err.message });
         }
         console.log('Returning', rows ? rows.length : 0, 'students');
         res.json(rows || []);
@@ -573,7 +658,7 @@ app.get('/api/students/:id', authenticateToken, (req, res) => {
 });
 
 // CREATE new student
-app.post('/api/students', authenticateToken, (req, res) => {
+app.post('/api/students', authenticateToken, async (req, res) => {
   try {
     console.log('POST /api/students - User:', req.user, 'Body:', req.body);
     const { firstName, lastName, email, phone, dateOfBirth, gpa, status } = req.body;
@@ -581,10 +666,25 @@ app.post('/api/students', authenticateToken, (req, res) => {
     // Validation
     if (!firstName || !lastName || !email) {
       console.log('Validation failed - missing required fields');
-      res.status(400).json({ error: 'First name, last name, and email are required' });
-      return;
+      return res.status(400).json({ error: 'First name, last name, and email are required' });
     }
     
+    // Use KV if available
+    if (hasKV && kvStorage) {
+      const student = await kvStorage.addStudent({
+        firstName,
+        lastName,
+        email,
+        phone,
+        dateOfBirth,
+        gpa: parseFloat(gpa) || 0.0,
+        status: status || 'Active'
+      });
+      console.log('Student created in KV with ID:', student.id);
+      return res.json(student);
+    }
+    
+    // Fallback to in-memory/SQLite
     const query = `
       INSERT INTO students (firstName, lastName, email, phone, dateOfBirth, gpa, status)
       VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -596,11 +696,10 @@ app.post('/api/students', authenticateToken, (req, res) => {
         if (err) {
           console.error('Database error:', err.message);
           if (err.message.includes('UNIQUE constraint failed')) {
-            res.status(400).json({ error: 'Email already exists' });
+            return res.status(400).json({ error: 'Email already exists' });
           } else {
-            res.status(500).json({ error: err.message });
+            return res.status(500).json({ error: err.message });
           }
-          return;
         }
         console.log('Student created with ID:', this.lastID);
         res.json({ id: this.lastID, firstName, lastName, email, phone, dateOfBirth, gpa, status });
@@ -691,9 +790,16 @@ app.get('/api/students/search/:query', authenticateToken, (req, res) => {
 
 
 // GET statistics
-app.get('/api/statistics', authenticateToken, (req, res) => {
+app.get('/api/statistics', authenticateToken, async (req, res) => {
   try {
     console.log('GET /api/statistics - User:', req.user);
+    
+    // Use KV if available
+    if (hasKV && kvStorage) {
+      const stats = await kvStorage.getStatistics();
+      console.log('Statistics from KV:', stats);
+      return res.json(stats);
+    }
     
     // For Vercel in-memory DB, directly calculate stats
     if (isVercel || db.__isMemory) {
@@ -709,8 +815,7 @@ app.get('/api/statistics', authenticateToken, (req, res) => {
         inactiveStudents: { count: students.filter(s => s.status === 'Inactive').length }
       };
       console.log('Statistics calculated:', stats);
-      res.json(stats);
-      return;
+      return res.json(stats);
     }
     
     // For SQLite, use original query method
