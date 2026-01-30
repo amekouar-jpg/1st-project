@@ -12,33 +12,9 @@ const PORT = process.env.PORT || 5000;
 // Global in-memory storage (persists across requests in same instance)
 const globalMemoryData = {
   users: [],
-  students: [
-    // Sample data for testing
-    {
-      id: 1,
-      firstName: 'John',
-      lastName: 'Doe',
-      email: 'john.doe@example.com',
-      phone: '555-0101',
-      dateOfBirth: '2000-01-15',
-      gpa: 3.8,
-      status: 'Active',
-      enrollmentDate: new Date().toISOString()
-    },
-    {
-      id: 2,
-      firstName: 'Jane',
-      lastName: 'Smith',
-      email: 'jane.smith@example.com',
-      phone: '555-0102',
-      dateOfBirth: '1999-05-20',
-      gpa: 3.9,
-      status: 'Active',
-      enrollmentDate: new Date().toISOString()
-    }
-  ],
+  students: [],
   userIdCounter: 1,
-  studentIdCounter: 3, // Start from 3 since we have 2 sample students
+  studentIdCounter: 1,
   initialized: false
 };
 
