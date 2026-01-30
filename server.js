@@ -17,16 +17,16 @@ console.log('=== SERVER STARTUP ===');
 console.log('isVercel:', isVercel);
 console.log('VERCEL env var:', process.env.VERCEL);
 
+// In-memory storage (persistent for the function lifetime)
+const memoryData = {
+  users: [],
+  students: [],
+  userIdCounter: 1,
+  studentIdCounter: 1
+};
+
 if (isVercel) {
   console.log('Running on Vercel - using in-memory DB');
-  
-  // In-memory storage
-  const memoryData = {
-    users: [],
-    students: [],
-    userIdCounter: 1,
-    studentIdCounter: 1
-  };
   
   // In-memory database implementation
   db = {
