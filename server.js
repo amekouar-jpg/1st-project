@@ -10,12 +10,16 @@ const PORT = process.env.PORT || 5000;
 // ============= DATABASE & AUTH SETUP =============
 
 // Global in-memory storage (persists across requests in same instance)
+// NOTE: On Vercel, data persists only while the instance is "warm" (~5-15 min)
+// For real persistence, use Upstash Redis, MongoDB, or Vercel Postgres
+// See VERCEL_PERSISTENCE.md for details
 const globalMemoryData = {
   users: [],
   students: [],
   userIdCounter: 1,
   studentIdCounter: 1,
-  initialized: false
+  initialized: false,
+  lastAccess: Date.now()
 };
 
 let db, authenticateToken, generateToken;
@@ -45,13 +49,20 @@ if (isVercel) {
   console.log('Students:', globalMemoryData.students.length);
   console.log('Initialized:', globalMemoryData.initialized);
   
+  const uptime = globalMemoryData.lastAccess ? (Date.now() - globalMemoryData.lastAccess) / 1000 : 0;
+  console.log('Instance uptime:', uptime.toFixed(2), 'seconds');
+  
   // Mark as initialized
   if (!globalMemoryData.initialized) {
     globalMemoryData.initialized = true;
     console.log('✅ First initialization of this instance');
+    console.log('⚠️  WARNING: Data will be lost when instance goes to sleep');
+    console.log('📖 For persistence, see VERCEL_PERSISTENCE.md');
   } else {
-    console.log('♻️ Instance already initialized (warm start)');
+    console.log('♻️ Instance still warm (data preserved)');
   }
+  
+  globalMemoryData.lastAccess = Date.now();
   
   // In-memory database implementation using global storage
   db = {
@@ -327,9 +338,12 @@ app.use(express.urlencoded({ extended: true }));
 
 // ============= DEBUG ENDPOINT =============
 app.get('/api/debug/memory', (req, res) => {
+  const uptime = globalMemoryData.lastAccess ? (Date.now() - globalMemoryData.lastAccess) / 1000 : 0;
   const memInfo = {
     isVercel: isVercel,
     timestamp: new Date().toISOString(),
+    instanceUptime: `${uptime.toFixed(2)} seconds`,
+    warning: 'Data persists only while instance is warm (~5-15 min). See VERCEL_PERSISTENCE.md for real persistence.',
     memoryState: {
       users: globalMemoryData.users.length,
       students: globalMemoryData.students.length,
@@ -341,6 +355,10 @@ app.get('/api/debug/memory', (req, res) => {
       userIdCounter: globalMemoryData.userIdCounter,
       studentIdCounter: globalMemoryData.studentIdCounter,
       initialized: globalMemoryData.initialized
+    },
+    solutions: {
+      recommended: 'Upstash Redis via Vercel Marketplace (free)',
+      alternatives: ['MongoDB Atlas', 'Vercel Postgres', 'VPS hosting with SQLite']
     }
   };
   console.log('📊 Memory debug requested:', memInfo);
