@@ -179,14 +179,15 @@ if (isVercel) {
     
     all: (query, params, callback) => {
       try {
-        // SELECT all students
-        if (query.includes('SELECT') && query.includes('FROM students') && !query.includes('LIKE')) {
+        // SELECT all students (without WHERE clause)
+        if (query.includes('SELECT') && query.includes('FROM students') && !query.includes('WHERE') && !query.includes('LIKE')) {
           console.log('📋 Returning all students. Count:', globalMemoryData.students.length);
+          console.log('Students:', JSON.stringify(globalMemoryData.students));
           if (callback) callback(null, [...globalMemoryData.students]);
           return;
         }
         
-        // Search students
+        // Search students with LIKE
         if (query.includes('LIKE')) {
           const searchTerm = params[0] ? params[0].replace(/%/g, '').toLowerCase() : '';
           const results = globalMemoryData.students.filter(s =>
@@ -194,6 +195,7 @@ if (isVercel) {
             s.lastName.toLowerCase().includes(searchTerm) ||
             s.email.toLowerCase().includes(searchTerm)
           );
+          console.log('🔍 Search results:', results.length);
           if (callback) callback(null, results);
           return;
         }
@@ -229,7 +231,9 @@ if (isVercel) {
       }
     },
     
-    serialize: (fn) => fn()
+    serialize: (fn) => fn(),
+    __isMemory: true,
+    __globalMemory: globalMemoryData
   };
   
   // Mock auth functions
@@ -636,29 +640,56 @@ app.get('/api/students/search/:query', authenticateToken, (req, res) => {
 
 // GET statistics
 app.get('/api/statistics', authenticateToken, (req, res) => {
-  db.serialize(() => {
-    const queries = {
-      totalStudents: 'SELECT COUNT(*) as count FROM students',
-      averageGPA: 'SELECT AVG(gpa) as avg FROM students',
-      activeStudents: "SELECT COUNT(*) as count FROM students WHERE status = 'Active'",
-      inactiveStudents: "SELECT COUNT(*) as count FROM students WHERE status = 'Inactive'"
-    };
+  try {
+    console.log('GET /api/statistics - User:', req.user);
     
-    const stats = {};
-    let completed = 0;
+    // For Vercel in-memory DB, directly calculate stats
+    if (isVercel || db.__isMemory) {
+      const students = globalMemoryData.students;
+      const stats = {
+        totalStudents: { count: students.length },
+        averageGPA: { 
+          avg: students.length > 0 
+            ? students.reduce((sum, s) => sum + (parseFloat(s.gpa) || 0), 0) / students.length 
+            : 0 
+        },
+        activeStudents: { count: students.filter(s => s.status === 'Active').length },
+        inactiveStudents: { count: students.filter(s => s.status === 'Inactive').length }
+      };
+      console.log('Statistics calculated:', stats);
+      res.json(stats);
+      return;
+    }
     
-    Object.keys(queries).forEach(key => {
-      db.get(queries[key], [], (err, row) => {
-        if (!err) {
-          stats[key] = row;
-        }
-        completed++;
-        if (completed === Object.keys(queries).length) {
-          res.json(stats);
-        }
+    // For SQLite, use original query method
+    db.serialize(() => {
+      const queries = {
+        totalStudents: 'SELECT COUNT(*) as count FROM students',
+        averageGPA: 'SELECT AVG(gpa) as avg FROM students',
+        activeStudents: "SELECT COUNT(*) as count FROM students WHERE status = 'Active'",
+        inactiveStudents: "SELECT COUNT(*) as count FROM students WHERE status = 'Inactive'"
+      };
+      
+      const stats = {};
+      let completed = 0;
+      
+      Object.keys(queries).forEach(key => {
+        db.get(queries[key], [], (err, row) => {
+          if (!err) {
+            stats[key] = row;
+          }
+          completed++;
+          if (completed === Object.keys(queries).length) {
+            console.log('Statistics from DB:', stats);
+            res.json(stats);
+          }
+        });
       });
     });
-  });
+  } catch (error) {
+    console.error('Error in GET /api/statistics:', error);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
 });
 
 
