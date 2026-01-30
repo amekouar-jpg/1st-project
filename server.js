@@ -12,9 +12,34 @@ const PORT = process.env.PORT || 5000;
 // Global in-memory storage (persists across requests in same instance)
 const globalMemoryData = {
   users: [],
-  students: [],
+  students: [
+    // Sample data for testing
+    {
+      id: 1,
+      firstName: 'John',
+      lastName: 'Doe',
+      email: 'john.doe@example.com',
+      phone: '555-0101',
+      dateOfBirth: '2000-01-15',
+      gpa: 3.8,
+      status: 'Active',
+      enrollmentDate: new Date().toISOString()
+    },
+    {
+      id: 2,
+      firstName: 'Jane',
+      lastName: 'Smith',
+      email: 'jane.smith@example.com',
+      phone: '555-0102',
+      dateOfBirth: '1999-05-20',
+      gpa: 3.9,
+      status: 'Active',
+      enrollmentDate: new Date().toISOString()
+    }
+  ],
   userIdCounter: 1,
-  studentIdCounter: 1
+  studentIdCounter: 3, // Start from 3 since we have 2 sample students
+  initialized: false
 };
 
 let db, authenticateToken, generateToken;
@@ -39,7 +64,18 @@ console.log('VERCEL env vars:', {
 
 if (isVercel) {
   console.log('Running on Vercel - using in-memory DB');
-  console.log('Current memory state - Users:', globalMemoryData.users.length, 'Students:', globalMemoryData.students.length);
+  console.log('=== MEMORY STATE ON STARTUP ===');
+  console.log('Users:', globalMemoryData.users.length);
+  console.log('Students:', globalMemoryData.students.length);
+  console.log('Initialized:', globalMemoryData.initialized);
+  
+  // Mark as initialized
+  if (!globalMemoryData.initialized) {
+    globalMemoryData.initialized = true;
+    console.log('✅ First initialization of this instance');
+  } else {
+    console.log('♻️ Instance already initialized (warm start)');
+  }
   
   // In-memory database implementation using global storage
   db = {
@@ -312,6 +348,28 @@ app.options('*', cors());
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// ============= DEBUG ENDPOINT =============
+app.get('/api/debug/memory', (req, res) => {
+  const memInfo = {
+    isVercel: isVercel,
+    timestamp: new Date().toISOString(),
+    memoryState: {
+      users: globalMemoryData.users.length,
+      students: globalMemoryData.students.length,
+      studentsList: globalMemoryData.students.map(s => ({
+        id: s.id,
+        name: `${s.firstName} ${s.lastName}`,
+        email: s.email
+      })),
+      userIdCounter: globalMemoryData.userIdCounter,
+      studentIdCounter: globalMemoryData.studentIdCounter,
+      initialized: globalMemoryData.initialized
+    }
+  };
+  console.log('📊 Memory debug requested:', memInfo);
+  res.json(memInfo);
+});
 
 // ============= AUTHENTICATION ROUTES =============
 
