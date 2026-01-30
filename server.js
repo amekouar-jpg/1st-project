@@ -7,16 +7,8 @@ const bcrypt = require('bcryptjs');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// ============= QUICK ROUTES BEFORE DB LOADING =============
+// ============= DATABASE & AUTH SETUP =============
 
-app.get('/', (req, res) => res.send('Serveur OK'));
-app.get('/test', (req, res) => res.json({ test: 'working', vercel: !!process.env.VERCEL }));
-app.get('/api/users', (req, res) => res.json({ users: [], message: 'API working' }));
-app.get('/users', (req, res) => res.json({ users: [], message: 'non-api route working' }));
-app.get('/ping', (req, res) => res.json({ status: 'ok' }));
-
-// NOW load heavy modules
-// Conditional DB import - skip on Vercel to avoid timeout
 let db, authenticateToken, generateToken;
 
 const isVercel = process.env.VERCEL || process.env.VERCEL_ENV;
@@ -26,7 +18,7 @@ console.log('isVercel:', isVercel);
 console.log('VERCEL env var:', process.env.VERCEL);
 
 if (isVercel) {
-  console.log('Running on Vercel - using minimal mock DB');
+  console.log('Running on Vercel - using mock DB');
   // Minimal mock DB to avoid SQLite loading
   db = {
     run: (query, params, callback) => { if (callback) callback(null); },
@@ -64,8 +56,8 @@ app.options('*', cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ============= AUTHENTICATION ROUTES (DISABLED FOR TESTING) =============
-/*
+// ============= AUTHENTICATION ROUTES =============
+
 // Handle preflight requests
 app.options('/api/auth/register', cors());
 app.options('/api/auth/login', cors());
@@ -372,9 +364,15 @@ app.get('/api/statistics', authenticateToken, (req, res) => {
     });
   });
 });
-*/
+
 
 // ============= STATIC FILES & HTML ROUTES =============
+
+// Serve login page for root path
+app.get('/', (req, res) => {
+  console.log('GET / - serving login.html');
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
 
 // Serve dashboard for /dashboard
 app.get('/dashboard', (req, res) => {
