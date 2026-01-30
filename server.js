@@ -18,22 +18,208 @@ console.log('isVercel:', isVercel);
 console.log('VERCEL env var:', process.env.VERCEL);
 
 if (isVercel) {
-  console.log('Running on Vercel - using mock DB');
-  // Minimal mock DB to avoid SQLite loading
-  db = {
-    run: (query, params, callback) => { if (callback) callback(null); },
-    get: (query, params, callback) => { if (callback) callback(null, null); },
-    all: (query, params, callback) => { if (callback) callback(null, []); },
-    __isMemory: true,
-    __memoryUsers: [],
-    __memoryStudents: []
+  console.log('Running on Vercel - using in-memory DB');
+  
+  // In-memory storage
+  const memoryData = {
+    users: [],
+    students: [],
+    userIdCounter: 1,
+    studentIdCounter: 1
   };
+  
+  // In-memory database implementation
+  db = {
+    run: (query, params, callback) => {
+      try {
+        // INSERT INTO users
+        if (query.includes('INSERT INTO users')) {
+          // Check for duplicates
+          const existingUser = memoryData.users.find(u => u.username === params[0] || u.email === params[1]);
+          if (existingUser) {
+            const error = new Error(
+              existingUser.username === params[0] 
+                ? 'UNIQUE constraint failed: users.username'
+                : 'UNIQUE constraint failed: users.email'
+            );
+            if (callback) callback(error);
+            return;
+          }
+          
+          const user = {
+            id: memoryData.userIdCounter++,
+            username: params[0],
+            email: params[1],
+            password: params[2],
+            fullName: params[3] || '',
+            lastLogin: new Date().toISOString(),
+            loginCount: 0
+          };
+          memoryData.users.push(user);
+          if (callback) callback.call({ lastID: user.id }, null);
+          return;
+        }
+        
+        // INSERT INTO students
+        if (query.includes('INSERT INTO students')) {
+          // Check for duplicate email
+          const existing = memoryData.students.find(s => s.email === params[2]);
+          if (existing) {
+            const error = new Error('UNIQUE constraint failed: students.email');
+            if (callback) callback(error);
+            return;
+          }
+          
+          const student = {
+            id: memoryData.studentIdCounter++,
+            firstName: params[0],
+            lastName: params[1],
+            email: params[2],
+            phone: params[3],
+            dateOfBirth: params[4],
+            gpa: params[5],
+            status: params[6],
+            enrollmentDate: new Date().toISOString()
+          };
+          memoryData.students.push(student);
+          if (callback) callback.call({ lastID: student.id, changes: 1 }, null);
+          return;
+        }
+        
+        // UPDATE students
+        if (query.includes('UPDATE students')) {
+          const id = params[params.length - 1];
+          const student = memoryData.students.find(s => s.id == id);
+          if (student) {
+            student.firstName = params[0];
+            student.lastName = params[1];
+            student.email = params[2];
+            student.phone = params[3];
+            student.dateOfBirth = params[4];
+            student.gpa = params[5];
+            student.status = params[6];
+            if (callback) callback.call({ changes: 1 }, null);
+          } else {
+            if (callback) callback.call({ changes: 0 }, null);
+          }
+          return;
+        }
+        
+        // UPDATE users
+        if (query.includes('UPDATE users SET lastLogin')) {
+          const id = params[0];
+          const user = memoryData.users.find(u => u.id == id);
+          if (user) {
+            user.lastLogin = new Date().toISOString();
+            user.loginCount = (user.loginCount || 0) + 1;
+          }
+          if (callback) callback.call({ changes: user ? 1 : 0 }, null);
+          return;
+        }
+        
+        // DELETE students
+        if (query.includes('DELETE FROM students')) {
+          const id = params[0];
+          const index = memoryData.students.findIndex(s => s.id == id);
+          if (index !== -1) {
+            memoryData.students.splice(index, 1);
+            if (callback) callback.call({ changes: 1 }, null);
+          } else {
+            if (callback) callback.call({ changes: 0 }, null);
+          }
+          return;
+        }
+        
+        if (callback) callback(null);
+      } catch (err) {
+        if (callback) callback(err);
+      }
+    },
+    
+    get: (query, params, callback) => {
+      try {
+        // SELECT from users WHERE username
+        if (query.includes('SELECT') && query.includes('FROM users') && query.includes('WHERE username')) {
+          const user = memoryData.users.find(u => u.username === params[0]);
+          if (callback) callback(null, user || null);
+          return;
+        }
+        
+        // SELECT from students WHERE id
+        if (query.includes('SELECT') && query.includes('FROM students') && query.includes('WHERE id')) {
+          const student = memoryData.students.find(s => s.id == params[0]);
+          if (callback) callback(null, student || null);
+          return;
+        }
+        
+        if (callback) callback(null, null);
+      } catch (err) {
+        if (callback) callback(err, null);
+      }
+    },
+    
+    all: (query, params, callback) => {
+      try {
+        // SELECT all students
+        if (query.includes('SELECT') && query.includes('FROM students')) {
+          if (callback) callback(null, memoryData.students);
+          return;
+        }
+        
+        // Search students
+        if (query.includes('LIKE')) {
+          const searchTerm = params[0] ? params[0].replace(/%/g, '').toLowerCase() : '';
+          const results = memoryData.students.filter(s =>
+            s.firstName.toLowerCase().includes(searchTerm) ||
+            s.lastName.toLowerCase().includes(searchTerm) ||
+            s.email.toLowerCase().includes(searchTerm)
+          );
+          if (callback) callback(null, results);
+          return;
+        }
+        
+        // COUNT queries
+        if (query.includes('COUNT(*)')) {
+          if (query.includes("status = 'Active'")) {
+            const count = memoryData.students.filter(s => s.status === 'Active').length;
+            if (callback) callback(null, [{ count }]);
+            return;
+          }
+          if (query.includes("status = 'Inactive'")) {
+            const count = memoryData.students.filter(s => s.status === 'Inactive').length;
+            if (callback) callback(null, [{ count }]);
+            return;
+          }
+          if (query.includes("COUNT(*)")) {
+            if (callback) callback(null, [{ count: memoryData.students.length }]);
+            return;
+          }
+        }
+        
+        // AVG queries
+        if (query.includes('AVG(gpa)')) {
+          const avg = memoryData.students.length > 0
+            ? memoryData.students.reduce((sum, s) => sum + (s.gpa || 0), 0) / memoryData.students.length
+            : 0;
+          if (callback) callback(null, [{ avg }]);
+          return;
+        }
+        
+        if (callback) callback(null, []);
+      } catch (err) {
+        if (callback) callback(err, []);
+      }
+    },
+    
+    serialize: (fn) => fn()
+  };
+  
   // Mock auth functions
   const jwt = require('jsonwebtoken');
   const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-here-change-in-production';
   generateToken = (user) => jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '24h' });
   authenticateToken = (req, res, next) => next();
-  console.log('Mock DB initialized');
+  console.log('In-memory DB initialized for Vercel');
 } else {
   console.log('Running locally - using SQLite database');
   db = require('./db/database');
