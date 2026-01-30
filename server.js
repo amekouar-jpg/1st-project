@@ -10,12 +10,26 @@ const PORT = process.env.PORT || 5000;
 // ============= DATABASE & AUTH SETUP =============
 
 let db, authenticateToken, generateToken;
+let kv = null;
 
 const isVercel = process.env.VERCEL || process.env.VERCEL_ENV;
+const hasKV = process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN;
 
 console.log('=== SERVER STARTUP ===');
 console.log('isVercel:', isVercel);
 console.log('VERCEL env var:', process.env.VERCEL);
+console.log('KV Store available:', hasKV ? 'YES' : 'NO');
+
+// Try to load Vercel KV if available
+if (hasKV) {
+  try {
+    kv = require('@vercel/kv').kv;
+    console.log('✅ Vercel KV Store connected for persistent data');
+  } catch (error) {
+    console.log('⚠️  KV Store not available, falling back to memory');
+    kv = null;
+  }
+}
 
 // In-memory storage (persistent for the function lifetime)
 const memoryData = {
@@ -25,8 +39,11 @@ const memoryData = {
   studentIdCounter: 1
 };
 
-if (isVercel) {
-  console.log('Running on Vercel - using in-memory DB');
+if (isVercel && !hasKV) {
+  console.log('⚠️  Running on Vercel WITHOUT persistent storage (in-memory only)');
+  console.log('📝 To fix: Set up Vercel KV Store in your Vercel Dashboard');
+  console.log('📄 See VERCEL_DATA_PERSISTENCE.md for instructions');
+}
   
   // In-memory database implementation
   db = {
