@@ -230,7 +230,26 @@ if (isVercel) {
   const jwt = require('jsonwebtoken');
   const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-here-change-in-production';
   generateToken = (user) => jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '24h' });
-  authenticateToken = (req, res, next) => next();
+    
+    // Proper token authentication for Vercel
+    authenticateToken = (req, res, next) => {
+      const authHeader = req.headers['authorization'];
+      const token = authHeader && authHeader.split(' ')[1];
+      
+      if (!token) {
+        console.warn('No token provided in request');
+        return res.status(401).json({ error: 'No token provided' });
+      }
+      
+      jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) {
+          console.error('Token verification failed:', err.message);
+          return res.status(401).json({ error: 'Invalid token' });
+        }
+        req.user = user;
+        next();
+      });
+    };
   console.log('In-memory DB initialized for Vercel');
 } else {
   console.log('Running locally - attempting to load SQLite database');
@@ -439,20 +458,33 @@ app.get('/api/auth/verify', authenticateToken, (req, res) => {
 
 // GET all students
 app.get('/api/students', authenticateToken, (req, res) => {
-  const query = `
-    SELECT id, firstName, lastName, email, phone, dateOfBirth, 
-           enrollmentDate, gpa, status 
-    FROM students 
-    ORDER BY id DESC
-  `;
-  
-  db.all(query, [], (err, rows) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    res.json(rows || []);
-  });
+  try {
+    console.log('GET /api/students - User:', req.user);
+    const query = `
+      SELECT id, firstName, lastName, email, phone, dateOfBirth, 
+             enrollmentDate, gpa, status 
+      FROM students 
+      ORDER BY id DESC
+    `;
+    
+    db.all(query, [], (err, rows) => {
+      try {
+        if (err) {
+          console.error('Database error:', err);
+          res.status(500).json({ error: err.message });
+          return;
+        }
+        console.log('Returning', rows ? rows.length : 0, 'students');
+        res.json(rows || []);
+      } catch (innerErr) {
+        console.error('Error in db.all callback:', innerErr);
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+  } catch (error) {
+    console.error('Error in GET /api/students:', error);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
 });
 
 // GET single student by ID
@@ -480,30 +512,45 @@ app.get('/api/students/:id', authenticateToken, (req, res) => {
 
 // CREATE new student
 app.post('/api/students', authenticateToken, (req, res) => {
-  const { firstName, lastName, email, phone, dateOfBirth, gpa, status } = req.body;
-  
-  // Validation
-  if (!firstName || !lastName || !email) {
-    res.status(400).json({ error: 'First name, last name, and email are required' });
-    return;
-  }
-  
-  const query = `
-    INSERT INTO students (firstName, lastName, email, phone, dateOfBirth, gpa, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `;
-  
-  db.run(query, [firstName, lastName, email, phone, dateOfBirth, gpa || 0.0, status || 'Active'], function(err) {
-    if (err) {
-      if (err.message.includes('UNIQUE constraint failed')) {
-        res.status(400).json({ error: 'Email already exists' });
-      } else {
-        res.status(500).json({ error: err.message });
-      }
+  try {
+    console.log('POST /api/students - User:', req.user, 'Body:', req.body);
+    const { firstName, lastName, email, phone, dateOfBirth, gpa, status } = req.body;
+    
+    // Validation
+    if (!firstName || !lastName || !email) {
+      console.log('Validation failed - missing required fields');
+      res.status(400).json({ error: 'First name, last name, and email are required' });
       return;
     }
-    res.json({ id: this.lastID, firstName, lastName, email, phone, dateOfBirth, gpa, status });
-  });
+    
+    const query = `
+      INSERT INTO students (firstName, lastName, email, phone, dateOfBirth, gpa, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `;
+    
+    console.log('Creating student:', firstName, lastName, email);
+    db.run(query, [firstName, lastName, email, phone, dateOfBirth, gpa || 0.0, status || 'Active'], function(err) {
+      try {
+        if (err) {
+          console.error('Database error:', err.message);
+          if (err.message.includes('UNIQUE constraint failed')) {
+            res.status(400).json({ error: 'Email already exists' });
+          } else {
+            res.status(500).json({ error: err.message });
+          }
+          return;
+        }
+        console.log('Student created with ID:', this.lastID);
+        res.json({ id: this.lastID, firstName, lastName, email, phone, dateOfBirth, gpa, status });
+      } catch (innerErr) {
+        console.error('Error in db.run callback:', innerErr);
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+  } catch (error) {
+    console.error('Error in POST /api/students:', error);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
 });
 
 // UPDATE student
