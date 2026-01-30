@@ -40,3 +40,5 @@ temp/
 # Ignore specific files
 node_modules/
 .env
+.vercel
+.env*.local
