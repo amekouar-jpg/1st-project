@@ -9,6 +9,14 @@ const PORT = process.env.PORT || 5000;
 
 // ============= DATABASE & AUTH SETUP =============
 
+// Global in-memory storage (persists across requests in same instance)
+const globalMemoryData = {
+  users: [],
+  students: [],
+  userIdCounter: 1,
+  studentIdCounter: 1
+};
+
 let db, authenticateToken, generateToken;
 
 // Detect if running on Vercel - check multiple env vars and hostname
@@ -31,23 +39,16 @@ console.log('VERCEL env vars:', {
 
 if (isVercel) {
   console.log('Running on Vercel - using in-memory DB');
+  console.log('Current memory state - Users:', globalMemoryData.users.length, 'Students:', globalMemoryData.students.length);
   
-  // In-memory storage
-  const memoryData = {
-    users: [],
-    students: [],
-    userIdCounter: 1,
-    studentIdCounter: 1
-  };
-  
-  // In-memory database implementation
+  // In-memory database implementation using global storage
   db = {
     run: (query, params, callback) => {
       try {
         // INSERT INTO users
         if (query.includes('INSERT INTO users')) {
           // Check for duplicates
-          const existingUser = memoryData.users.find(u => u.username === params[0] || u.email === params[1]);
+          const existingUser = globalMemoryData.users.find(u => u.username === params[0] || u.email === params[1]);
           if (existingUser) {
             const error = new Error(
               existingUser.username === params[0] 
@@ -59,7 +60,7 @@ if (isVercel) {
           }
           
           const user = {
-            id: memoryData.userIdCounter++,
+            id: globalMemoryData.userIdCounter++,
             username: params[0],
             email: params[1],
             password: params[2],
@@ -67,7 +68,8 @@ if (isVercel) {
             lastLogin: new Date().toISOString(),
             loginCount: 0
           };
-          memoryData.users.push(user);
+          globalMemoryData.users.push(user);
+          console.log('✅ User added to memory. Total users:', globalMemoryData.users.length);
           if (callback) callback.call({ lastID: user.id }, null);
           return;
         }
@@ -75,7 +77,7 @@ if (isVercel) {
         // INSERT INTO students
         if (query.includes('INSERT INTO students')) {
           // Check for duplicate email
-          const existing = memoryData.students.find(s => s.email === params[2]);
+          const existing = globalMemoryData.students.find(s => s.email === params[2]);
           if (existing) {
             const error = new Error('UNIQUE constraint failed: students.email');
             if (callback) callback(error);
@@ -83,7 +85,7 @@ if (isVercel) {
           }
           
           const student = {
-            id: memoryData.studentIdCounter++,
+            id: globalMemoryData.studentIdCounter++,
             firstName: params[0],
             lastName: params[1],
             email: params[2],
@@ -93,7 +95,8 @@ if (isVercel) {
             status: params[6],
             enrollmentDate: new Date().toISOString()
           };
-          memoryData.students.push(student);
+          globalMemoryData.students.push(student);
+          console.log('✅ Student added to memory. Total students:', globalMemoryData.students.length);
           if (callback) callback.call({ lastID: student.id, changes: 1 }, null);
           return;
         }
@@ -101,7 +104,7 @@ if (isVercel) {
         // UPDATE students
         if (query.includes('UPDATE students')) {
           const id = params[params.length - 1];
-          const student = memoryData.students.find(s => s.id == id);
+          const student = globalMemoryData.students.find(s => s.id == id);
           if (student) {
             student.firstName = params[0];
             student.lastName = params[1];
@@ -110,8 +113,10 @@ if (isVercel) {
             student.dateOfBirth = params[4];
             student.gpa = params[5];
             student.status = params[6];
+            console.log('✅ Student updated in memory');
             if (callback) callback.call({ changes: 1 }, null);
           } else {
+            console.log('❌ Student not found for update');
             if (callback) callback.call({ changes: 0 }, null);
           }
           return;
@@ -120,7 +125,7 @@ if (isVercel) {
         // UPDATE users
         if (query.includes('UPDATE users SET lastLogin')) {
           const id = params[0];
-          const user = memoryData.users.find(u => u.id == id);
+          const user = globalMemoryData.users.find(u => u.id == id);
           if (user) {
             user.lastLogin = new Date().toISOString();
             user.loginCount = (user.loginCount || 0) + 1;
@@ -132,9 +137,10 @@ if (isVercel) {
         // DELETE students
         if (query.includes('DELETE FROM students')) {
           const id = params[0];
-          const index = memoryData.students.findIndex(s => s.id == id);
+          const index = globalMemoryData.students.findIndex(s => s.id == id);
           if (index !== -1) {
-            memoryData.students.splice(index, 1);
+            globalMemoryData.students.splice(index, 1);
+            console.log('✅ Student deleted from memory. Total students:', globalMemoryData.students.length);
             if (callback) callback.call({ changes: 1 }, null);
           } else {
             if (callback) callback.call({ changes: 0 }, null);
@@ -152,14 +158,15 @@ if (isVercel) {
       try {
         // SELECT from users WHERE username
         if (query.includes('SELECT') && query.includes('FROM users') && query.includes('WHERE username')) {
-          const user = memoryData.users.find(u => u.username === params[0]);
+          const user = globalMemoryData.users.find(u => u.username === params[0]);
+          console.log('🔍 User lookup:', params[0], user ? '✅ Found' : '❌ Not found');
           if (callback) callback(null, user || null);
           return;
         }
         
         // SELECT from students WHERE id
         if (query.includes('SELECT') && query.includes('FROM students') && query.includes('WHERE id')) {
-          const student = memoryData.students.find(s => s.id == params[0]);
+          const student = globalMemoryData.students.find(s => s.id == params[0]);
           if (callback) callback(null, student || null);
           return;
         }
@@ -173,15 +180,16 @@ if (isVercel) {
     all: (query, params, callback) => {
       try {
         // SELECT all students
-        if (query.includes('SELECT') && query.includes('FROM students')) {
-          if (callback) callback(null, memoryData.students);
+        if (query.includes('SELECT') && query.includes('FROM students') && !query.includes('LIKE')) {
+          console.log('📋 Returning all students. Count:', globalMemoryData.students.length);
+          if (callback) callback(null, [...globalMemoryData.students]);
           return;
         }
         
         // Search students
         if (query.includes('LIKE')) {
           const searchTerm = params[0] ? params[0].replace(/%/g, '').toLowerCase() : '';
-          const results = memoryData.students.filter(s =>
+          const results = globalMemoryData.students.filter(s =>
             s.firstName.toLowerCase().includes(searchTerm) ||
             s.lastName.toLowerCase().includes(searchTerm) ||
             s.email.toLowerCase().includes(searchTerm)
@@ -193,27 +201,25 @@ if (isVercel) {
         // COUNT queries
         if (query.includes('COUNT(*)')) {
           if (query.includes("status = 'Active'")) {
-            const count = memoryData.students.filter(s => s.status === 'Active').length;
-            if (callback) callback(null, [{ count }]);
+            const count = globalMemoryData.students.filter(s => s.status === 'Active').length;
+            if (callback) callback(null, { count });
             return;
           }
           if (query.includes("status = 'Inactive'")) {
-            const count = memoryData.students.filter(s => s.status === 'Inactive').length;
-            if (callback) callback(null, [{ count }]);
+            const count = globalMemoryData.students.filter(s => s.status === 'Inactive').length;
+            if (callback) callback(null, { count });
             return;
           }
-          if (query.includes("COUNT(*)")) {
-            if (callback) callback(null, [{ count: memoryData.students.length }]);
-            return;
-          }
+          if (callback) callback(null, { count: globalMemoryData.students.length });
+          return;
         }
         
         // AVG queries
         if (query.includes('AVG(gpa)')) {
-          const avg = memoryData.students.length > 0
-            ? memoryData.students.reduce((sum, s) => sum + (s.gpa || 0), 0) / memoryData.students.length
+          const avg = globalMemoryData.students.length > 0
+            ? globalMemoryData.students.reduce((sum, s) => sum + (s.gpa || 0), 0) / globalMemoryData.students.length
             : 0;
-          if (callback) callback(null, [{ avg }]);
+          if (callback) callback(null, { avg });
           return;
         }
         
